@@ -1,0 +1,5 @@
+# Version 2: Wider initial conditions
+# Randomise release position and rope angle more strongly.
+version: 2
+init_swing_range_deg: 30.0
+init_pos_noise: 0.1

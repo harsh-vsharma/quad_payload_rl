@@ -1,0 +1,17 @@
+# Version 7: Stability during transport (moving target)
+# The drone must stabilise the payload while moving slowly.
+version: 7
+episode_len_sec: 15.0
+init_swing_range_deg: 15.0
+init_pos_noise: 0.1
+impulse_enabled: true
+wind_enabled: true
+wind_mean_speed: 0.02
+wind_turbulence: 0.005
+drift_weight: 1.0
+energy_weight: 0.5
+moving_target: true
+target_speed: 0.1
+target_weight: 3.0
+swing_weight: 3.0
+vel_weight: 0.2

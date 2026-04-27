@@ -1,0 +1,11 @@
+# Version 6: Stability + efficiency
+# Add control effort penalty for smoother, more efficient control.
+version: 6
+init_swing_range_deg: 15.0
+init_pos_noise: 0.1
+impulse_enabled: true
+wind_enabled: true
+wind_mean_speed: 0.02
+wind_turbulence: 0.005
+drift_weight: 1.0
+energy_weight: 0.5

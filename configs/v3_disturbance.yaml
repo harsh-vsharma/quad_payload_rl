@@ -1,0 +1,8 @@
+# Version 3: Disturbance rejection
+# Add occasional external impulses on the payload.
+version: 3
+init_swing_range_deg: 15.0
+init_pos_noise: 0.1
+impulse_enabled: true
+impulse_interval_sec: [2.0, 5.0]
+impulse_magnitude: [0.01, 0.05]

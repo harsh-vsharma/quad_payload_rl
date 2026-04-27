@@ -1,0 +1,11 @@
+# Version 4: Wind and environmental noise
+# Add slowly-varying wind disturbance (Ornstein-Uhlenbeck process).
+version: 4
+init_swing_range_deg: 15.0
+init_pos_noise: 0.1
+impulse_enabled: true
+impulse_interval_sec: [2.0, 5.0]
+impulse_magnitude: [0.01, 0.05]
+wind_enabled: true
+wind_mean_speed: 0.02
+wind_turbulence: 0.005

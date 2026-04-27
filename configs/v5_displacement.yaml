@@ -1,0 +1,10 @@
+# Version 5: Stability + displacement control
+# Penalise unnecessary drone drift from the hover region.
+version: 5
+init_swing_range_deg: 15.0
+init_pos_noise: 0.1
+impulse_enabled: true
+wind_enabled: true
+wind_mean_speed: 0.02
+wind_turbulence: 0.005
+drift_weight: 1.0
