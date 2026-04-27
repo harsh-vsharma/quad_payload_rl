@@ -1,7 +1,29 @@
-# RL Assignment Dependencies
+# ============================================================
+# Quadrotor Payload RL — Dependencies
+# ============================================================
+# Install with:
+#   pip install -r requirements.txt
+#   pip install -e gym-pybullet-drones/   # local library (editable)
+
+# Core scientific stack
 numpy>=1.20
-gymnasium>=0.29
-pybullet>=3.2
 matplotlib>=3.5
-# gym-pybullet-drones is installed from parent directory
-# Install with: pip install -e ../gym-pybullet-drones
+
+# Physics simulation
+pybullet>=3.2
+
+# RL environment interface
+gymnasium>=0.29
+
+# RL algorithms
+stable-baselines3>=2.0.0
+
+# Deep learning backend (stable-baselines3 dependency)
+torch>=2.0.0
+
+# Experiment management
+pyyaml>=6.0
+tensorboard>=2.10.0
+
+# Image processing (required by gym-pybullet-drones BaseAviary)
+Pillow>=9.0
