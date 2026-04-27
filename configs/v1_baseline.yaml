@@ -1,6 +1,6 @@
 # Version 1: Baseline stabilisation
-# Train the agent to stabilise a hanging load from small initial offsets.
-# No wind, no impulses, no penalties beyond stabilisation.
+# Train the agent to stabilise a hanging load from moderate initial offsets.
+# No wind, no impulses. Swing is guaranteed nonzero every episode (1.5°–15°).
 version: 1
-init_swing_range_deg: 5.0
+init_swing_range_deg: 15.0
 episode_len_sec: 10.0

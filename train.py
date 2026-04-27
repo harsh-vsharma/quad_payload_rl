@@ -222,20 +222,31 @@ def train(args):
         model = build_model(algo_name, train_env, output_dir, args)
 
     # ----- Callbacks -----
-    stop_cb = StopTrainingOnRewardThreshold(
-        reward_threshold=args.target_reward, verbose=1,
-    )
+    # Early-stop: only enable if the user set an explicit threshold.
+    # Default is disabled (-1) because the do-nothing hover baseline already
+    # exceeds a naive threshold before any real learning has occurred.
+    if args.target_reward > 0:
+        stop_cb = StopTrainingOnRewardThreshold(
+            reward_threshold=args.target_reward, verbose=1,
+        )
+        eval_cb_on_best = stop_cb
+    else:
+        eval_cb_on_best = None
+
+    # Evaluate at most every 5 % of the total budget (minimum 25 000 steps).
+    # This ensures the model has had meaningful training before the first eval.
+    eval_freq = max(args.timesteps // 20, 25_000)
 
     eval_cb = EvalCallback(
         eval_env,
-        callback_on_new_best=stop_cb,
+        callback_on_new_best=eval_cb_on_best,
         verbose=1,
         best_model_save_path=output_dir,
         log_path=output_dir,
-        eval_freq=max(args.timesteps // 100, 5000),
+        eval_freq=eval_freq,
         deterministic=True,
         render=False,
-        n_eval_episodes=5,
+        n_eval_episodes=10,
     )
 
     ckpt_cb = CheckpointCallback(
@@ -307,8 +318,8 @@ Examples:
                         help="RL algorithm (default: sac)")
     parser.add_argument("--timesteps", type=int, default=500_000,
                         help="Total training timesteps (default: 500000)")
-    parser.add_argument("--target_reward", type=float, default=400.0,
-                        help="Early-stop reward threshold (default: 400)")
+    parser.add_argument("--target_reward", type=float, default=-1.0,
+                        help="Early-stop reward threshold; -1 disables (default: -1)")
     parser.add_argument("--n_envs", type=int, default=8,
                         help="Parallel envs for PPO (default: 8)")
     parser.add_argument("--resume", type=str, default=None,

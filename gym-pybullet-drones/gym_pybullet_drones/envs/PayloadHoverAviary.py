@@ -39,7 +39,7 @@ class PayloadHoverAviary(BaseRLAviary):
         ctrl_freq=30,            # Hz  (matches upstream HoverAviary)
 
         # Initial conditions
-        init_swing_range_deg=5.0,   # max initial cable angle from vertical
+        init_swing_range_deg=15.0,   # max initial cable angle from vertical
         init_pos_noise=0.0,         # m, uniform noise on drone XY spawn
 
         # RPM dynamic range
@@ -195,9 +195,11 @@ class PayloadHoverAviary(BaseRLAviary):
                 physicsClientId=self.CLIENT,
             )
 
-        # Compute initial payload position with swing offset
+        # Swing angle: sample magnitude in [swing_min, swing_max] to guarantee
+        # nonzero offset every reset (no lucky 0° episodes).
+        swing_min_rad = np.deg2rad(max(1.0, self.cfg["init_swing_range_deg"] * 0.1))
         swing_max_rad = np.deg2rad(self.cfg["init_swing_range_deg"])
-        theta = np.random.uniform(-swing_max_rad, swing_max_rad)
+        theta = np.random.uniform(swing_min_rad, swing_max_rad)
         phi   = np.random.uniform(0, 2 * np.pi)
 
         # Payload offset from drone (cable vector in drone frame)
