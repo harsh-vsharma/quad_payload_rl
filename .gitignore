@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# RL training outputs
+old_results/
+results/
+*.zip
+*.npz
+*.npy
+
+# TensorBoard logs
+tb/
+events.out.tfevents.*
+
+# Checkpoints
+checkpoints/
+
+# Misc
+*.log
