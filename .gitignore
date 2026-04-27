@@ -1,23 +1,81 @@
-# macOS
+# ==============================
+# OS / System
+# ==============================
 .DS_Store
+Thumbs.db
 
+# ==============================
 # Python
+# ==============================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# RL training outputs
-old_results/
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ==============================
+# Build / Packaging
+# ==============================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ==============================
+# Logs
+# ==============================
+*.log
+
+# ==============================
+# RL / Experiment Outputs
+# ==============================
 results/
+old_results/
+
+# Saved models & checkpoints
 *.zip
-*.npz
-*.npy
-
-# TensorBoard logs
-tb/
-events.out.tfevents.*
-
-# Checkpoints
+*.pt
+*.pth
+*.ckpt
 checkpoints/
 
-# Misc
-*.log
+# Numpy / data dumps
+*.npy
+*.npz
+
+# TensorBoard
+tb/
+runs/
+events.out.tfevents.*
+
+# ==============================
+# Jupyter
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# IDE / Editor
+# ==============================
+.vscode/
+.idea/
+
+# ==============================
+# Local config / secrets
+# ==============================
+.env
+.env.*
+*.env
+
+# ==============================
+# Submodule / external package outputs
+# ==============================
+gym-pybullet-drones/results/
