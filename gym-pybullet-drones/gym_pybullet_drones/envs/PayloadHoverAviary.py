@@ -64,13 +64,18 @@ class PayloadHoverAviary(BaseRLAviary):
         drift_weight=0.0,              # V5+
         payload_height_weight=0.0,     # V6+: reward for keeping payload at target z
         energy_weight=0.0,             # V7+
-        target_weight=0.0,             # V8+
+        target_weight=0.0,             # V8+: proximity reward at target
+        progress_weight=0.0,           # V8+: potential-based shaping (distance closed/step)
+        transit_relax=0.0,             # V8+: relax vel/tilt penalties when far from target
 
-        # Transport (V8)
-        moving_target=False,
+        # Go-to-target navigation (V8)
+        random_target=False,           # sample new random target each episode
+        target_xy_range=0.8,           # max XY distance from origin
+        target_z_range=(0.8, 1.2),     # drone target height range
+        moving_target=False,           # legacy: slowly drifting target
         target_speed=0.0,
 
-        # Target override (for eval/debug; None → hover at spawn)
+        # Target override (for eval/demo; None → hover at spawn)
         fixed_target=None,
     )
 
@@ -151,15 +156,35 @@ class PayloadHoverAviary(BaseRLAviary):
         # ----- target position -----
         fixed = self.cfg["fixed_target"]
         if fixed is not None:
+            # Explicit target (used by demo_goto.py / eval)
             self.TARGET_POS = np.array(fixed, dtype=np.float64)
+        elif self.cfg["random_target"]:
+            # V8: sample a random fixed target each episode.
+            # XY: uniform in a ring [0.1, target_xy_range] at any angle.
+            # Z:  uniform within target_z_range.
+            angle = np.random.uniform(0, 2 * np.pi)
+            xy_max = self.cfg["target_xy_range"]
+            dist = np.random.uniform(0.1, xy_max)
+            z_lo, z_hi = self.cfg["target_z_range"]
+            z = np.random.uniform(z_lo, z_hi)
+            self.TARGET_POS = np.array([
+                dist * np.cos(angle),
+                dist * np.sin(angle),
+                z,
+            ])
         elif self.cfg["moving_target"]:
-            # V7: sample a direction and move target slowly each step
+            # Legacy: slowly drifting target
             self.TARGET_POS = np.array([0.0, 0.0, 1.0])
             self._target_vel = self._sampleTargetVelocity()
         else:
             self.TARGET_POS = np.array([0.0, 0.0, 1.0])  # hover at spawn
 
         self.TARGET_PAYLOAD_POS = self.TARGET_POS - np.array([0.0, 0.0, self.CABLE_LENGTH])
+
+        # Progress reward bookkeeping (potential-based shaping)
+        self._prev_target_dist = float(np.linalg.norm(
+            self.TARGET_POS - np.array([0.0, 0.0, 1.0])  # initial drone pos
+        ))
 
         # Parent housekeeping (loads drone, resets counters)
         super()._housekeeping()
@@ -487,12 +512,20 @@ class PayloadHoverAviary(BaseRLAviary):
         # ----- Tilt penalty -----
         tilt = abs(drone_rpy[0]) + abs(drone_rpy[1])
 
+        # ----- Transit-phase relaxation (V8) -----
+        # When far from target, reduce vel/tilt penalties so the drone can
+        # actually fly aggressively.  Penalties return to full at the target.
+        curr_target_dist = float(np.linalg.norm(self.TARGET_POS - drone_pos))
+        relax = cfg["transit_relax"] * min(curr_target_dist, 1.0)
+        eff_vel_w  = cfg["vel_weight"]  * (1.0 - relax)
+        eff_tilt_w = cfg["tilt_weight"] * (1.0 - relax)
+
         # ----- Assemble -----
         reward = (
             + cfg["alive_bonus"]
             + cfg["swing_weight"] * swing_reward
-            - cfg["vel_weight"]   * vel_pen
-            - cfg["tilt_weight"]  * tilt
+            - eff_vel_w  * vel_pen
+            - eff_tilt_w * tilt
         )
 
         # ----- V5+: drift penalty -----
@@ -514,10 +547,17 @@ class PayloadHoverAviary(BaseRLAviary):
             action_diff = np.linalg.norm(last_action - prev_action)
             reward -= cfg["energy_weight"] * action_diff
 
-        # ----- V8: target proximity -----
+        # ----- V8: target proximity (sharper kernel) -----
         if cfg["target_weight"] > 0:
-            target_err = np.linalg.norm(self.TARGET_POS - drone_pos)
-            reward += cfg["target_weight"] * np.exp(-2.0 * target_err)
+            reward += cfg["target_weight"] * np.exp(-4.0 * curr_target_dist)
+
+        # ----- V8: progress reward (potential-based shaping) -----
+        # Dense gradient: +reward for every metre closed toward target.
+        # Policy-invariant shaping (Ng et al., 1999).
+        if cfg["progress_weight"] > 0:
+            progress = self._prev_target_dist - curr_target_dist
+            reward += cfg["progress_weight"] * progress
+            self._prev_target_dist = curr_target_dist
 
         return float(reward)
 

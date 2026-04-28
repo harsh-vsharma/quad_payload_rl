@@ -70,7 +70,7 @@ VERSION_DESC = {
     5: "Position hold: drift penalty active",
     6: "Payload height: keep load at correct altitude",
     7: "Efficiency: smooth control with height locked in",
-    8: "Transport: track moving target with full stability",
+    8: "Go-to-target: fly to random fixed target with full stability",
 }
 
 

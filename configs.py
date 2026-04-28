@@ -51,6 +51,11 @@ V1_BASELINE = dict(
     payload_height_weight=0.0,
     energy_weight=0.0,
     target_weight=0.0,
+    progress_weight=0.0,
+    transit_relax=0.0,
+    random_target=False,
+    target_xy_range=0.8,
+    target_z_range=(0.8, 1.2),
     moving_target=False,
     target_speed=0.0,
     fixed_target=None,
@@ -95,15 +100,26 @@ V7_EFFICIENCY = {**V6_PAYLOAD_HEIGHT,
     "energy_weight": 0.5,
 }
 
-# V8: Transport — capstone. Moving target with all prior objectives active.
-V8_TRANSPORT = {**V7_EFFICIENCY,
+# V8: Go-to-target — capstone.  Random fixed target, all prior objectives.
+# Each episode samples a different target at a random XY position + height.
+# The drone must fly from origin to target and stabilise the payload there.
+# Progress reward + transit relaxation give dense navigation gradient.
+V8_GOTO = {**V7_EFFICIENCY,
     "version": 8,
     "episode_len_sec": 15.0,
-    "moving_target": True,
-    "target_speed": 0.1,
-    "target_weight": 3.0,
-    "swing_weight": 3.0,
-    "vel_weight": 0.2,
+
+    # Random fixed target per episode
+    "random_target": True,
+    "target_xy_range": 1.0,          # max XY distance from origin (m)
+    "target_z_range": (0.7, 1.3),    # drone target height range (m)
+    "moving_target": False,
+
+    # Navigation reward
+    "target_weight": 3.0,            # proximity reward (exp(-4 * dist))
+    "progress_weight": 2.0,          # potential-based shaping (Ng 1999)
+    "transit_relax": 0.5,            # relax vel/tilt penalties during transit
+    "swing_weight": 3.0,             # slightly lower to allow transit motion
+    "vel_weight": 0.2,               # allow higher velocity during transit
 }
 
 VERSION_PRESETS = {
@@ -114,7 +130,7 @@ VERSION_PRESETS = {
     5: V5_DISPLACEMENT,
     6: V6_PAYLOAD_HEIGHT,
     7: V7_EFFICIENCY,
-    8: V8_TRANSPORT,
+    8: V8_GOTO,
 }
 
 
