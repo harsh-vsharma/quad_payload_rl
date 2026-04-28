@@ -340,11 +340,14 @@ def train(args):
     else:
         eval_cb_on_best = None
 
-    # eval_freq is measured in env.step() *calls*, not total timesteps.
-    # With SubprocVecEnv(n_envs), each call collects n_envs transitions,
-    # so we divide by n_envs to fire at the intended timestep interval.
-    # Target: every 10% of budget (minimum 25K timesteps — low enough for short test runs).
-    eval_freq = max(args.timesteps // 10, 25_000) // n_envs
+    # SB3 callbacks fire based on env.step() *calls*, not total timesteps.
+    # With SubprocVecEnv(n_envs), each call collects n_envs transitions.
+    # We define intervals in real timesteps, then convert to step-calls.
+    EVAL_EVERY_TIMESTEPS = 25_000    # eval every 25K real timesteps
+    CKPT_EVERY_TIMESTEPS = 50_000    # checkpoint every 50K real timesteps
+
+    eval_freq = max(1, EVAL_EVERY_TIMESTEPS // n_envs)
+    ckpt_freq = max(1, CKPT_EVERY_TIMESTEPS // n_envs)
 
     eval_cb = EvalCallback(
         eval_env,
@@ -359,7 +362,7 @@ def train(args):
     )
 
     ckpt_cb = CheckpointCallback(
-        save_freq=50000,
+        save_freq=ckpt_freq,
         save_path=os.path.join(output_dir, "checkpoints"),
         name_prefix=f"{algo_name}_v{version}",
     )
@@ -368,6 +371,7 @@ def train(args):
     print(f"\n{'='*65}")
     print(f"  Training {algo_name.upper()} on V{version}")
     print(f"  {args.timesteps:,} steps  |  {n_envs} envs  |  {device}")
+    print(f"  eval every {EVAL_EVERY_TIMESTEPS:,} ts  |  ckpt every {CKPT_EVERY_TIMESTEPS:,} ts")
     print(f"{'='*65}\n")
 
     t0 = time.time()
