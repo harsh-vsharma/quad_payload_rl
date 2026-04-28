@@ -48,6 +48,7 @@ import matplotlib.pyplot as plt
 from stable_baselines3 import SAC, PPO, TD3
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import (
     EvalCallback,
     StopTrainingOnRewardThreshold,
@@ -312,7 +313,8 @@ def train(args):
     # ----- Create environments -----
     # ALL algorithms now use parallel envs for maximum throughput.
     train_env = make_parallel_envs(env_config, n_envs, seed=0)
-    eval_env  = make_single_env(env_config)
+    # Monitor wraps the eval env so SB3 can reliably track episode stats.
+    eval_env  = Monitor(make_single_env(env_config))
 
     print(f"[INFO] Action space:  {train_env.action_space}")
     print(f"[INFO] Obs space:     {eval_env.observation_space}")
@@ -338,9 +340,11 @@ def train(args):
     else:
         eval_cb_on_best = None
 
-    # Evaluate every 10% of the budget (minimum 100K steps).
-    # Kept infrequent to reduce simulation overhead during training.
-    eval_freq = max(args.timesteps // 10, 100_000)
+    # eval_freq is measured in env.step() *calls*, not total timesteps.
+    # With SubprocVecEnv(n_envs), each call collects n_envs transitions,
+    # so we divide by n_envs to fire at the intended timestep interval.
+    # Target: every 10% of budget (minimum 100K timesteps).
+    eval_freq = max(args.timesteps // 10, 100_000) // n_envs
 
     eval_cb = EvalCallback(
         eval_env,
