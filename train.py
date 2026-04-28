@@ -343,8 +343,8 @@ def train(args):
     # eval_freq is measured in env.step() *calls*, not total timesteps.
     # With SubprocVecEnv(n_envs), each call collects n_envs transitions,
     # so we divide by n_envs to fire at the intended timestep interval.
-    # Target: every 10% of budget (minimum 100K timesteps).
-    eval_freq = max(args.timesteps // 10, 100_000) // n_envs
+    # Target: every 10% of budget (minimum 25K timesteps — low enough for short test runs).
+    eval_freq = max(args.timesteps // 10, 25_000) // n_envs
 
     eval_cb = EvalCallback(
         eval_env,
