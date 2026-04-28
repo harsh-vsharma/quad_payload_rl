@@ -6,8 +6,12 @@ environment with version-configurable curriculum.
 Performance notes
 -----------------
 This script auto-detects CUDA GPUs and parallelises PyBullet environments
-across CPU cores using SubprocVecEnv.  On a 32-thread server with a GPU,
-SAC training runs at ~3000–5000 FPS instead of ~400 FPS single-core.
+across CPU cores using SubprocVecEnv.  Key optimisations:
+  - SubprocVecEnv: parallel physics across CPU cores
+  - train_freq=4, gradient_steps=2: reduces CPU↔GPU switching overhead
+  - batch_size=1024: better GPU utilisation
+  - torch thread pinning: prevents CPU oversubscription with SubprocVecEnv
+On a 32-thread server (EPYC 7313 + RTX A5000), expect ~800–1400 FPS.
 
 Usage examples:
     # V1 baseline with SAC — auto-detect hardware
@@ -35,6 +39,8 @@ from multiprocessing import cpu_count
 
 import numpy as np
 import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -143,14 +149,13 @@ def make_parallel_envs(env_config, n_envs, seed=0):
 def build_model(algo_name, env, output_dir, device, n_envs, args):
     """Create a fresh RL model with hardware-aware hyperparameters.
 
-    Key performance parameters tuned for multi-env + GPU:
-      - train_freq: collect N env steps (across all envs) before training.
-        With n_envs parallel sims, setting train_freq=1 means n_envs
-        transitions per training call — already batched.
-      - gradient_steps: number of SGD updates per training call.
-        Match to n_envs so the update:collection ratio stays ~1:1.
-      - batch_size: larger batches fill the GPU better.  512–1024 is
-        ideal for the A5000-class cards; harmless on CPU (just uses RAM).
+    Key performance tuning (SAC):
+      - train_freq=(4, 'step'): collect 4 env steps before each training
+        call.  Reduces the number of CPU↔GPU switches.
+      - gradient_steps=2: only 2 SGD updates per training call (instead
+        of matching n_envs).  This is the single biggest speed gain.
+      - batch_size=1024: fills the GPU properly on A5000-class cards.
+      - learning_starts=10_000: fill the replay buffer before training.
     """
     algo_cls = ALGO_MAP[algo_name]
 
@@ -158,29 +163,24 @@ def build_model(algo_name, env, output_dir, device, n_envs, args):
         verbose=1,
         device=device,
         tensorboard_log=os.path.join(output_dir, "tb"),
-        policy_kwargs=dict(
-            net_arch=[256, 256],
-        ),
     )
 
     if algo_name == "sac":
-        # Gradient steps: with SubprocVecEnv, each env.step() yields
-        # n_envs transitions. We do n_envs gradient updates to keep the
-        # update-to-data ratio ≈ 1:1, but bundled → less Python overhead.
-        grad_steps = max(n_envs, 4)
-
         model = algo_cls(
             "MlpPolicy",
             env,
             learning_rate=3e-4,
-            batch_size=512,
+            batch_size=1024,                 # better GPU utilisation
             buffer_size=1_000_000,
-            learning_starts=max(10_000, n_envs * 100),
+            learning_starts=10_000,
             gamma=0.99,
             tau=0.005,
             ent_coef="auto",
-            train_freq=1,                # 1 step per env → n_envs transitions
-            gradient_steps=grad_steps,   # batch gradient updates
+            train_freq=(4, "step"),           # fewer update calls
+            gradient_steps=2,                # MASSIVE speed improvement
+            policy_kwargs=dict(
+                net_arch=[256, 256],
+            ),
             **common_kwargs,
         )
 
@@ -338,9 +338,9 @@ def train(args):
     else:
         eval_cb_on_best = None
 
-    # Evaluate at most every 5 % of the total budget (minimum 25 000 steps).
-    # This ensures the model has had meaningful training before the first eval.
-    eval_freq = max(args.timesteps // 20, 25_000)
+    # Evaluate every 10% of the budget (minimum 100K steps).
+    # Kept infrequent to reduce simulation overhead during training.
+    eval_freq = max(args.timesteps // 10, 100_000)
 
     eval_cb = EvalCallback(
         eval_env,
@@ -351,7 +351,7 @@ def train(args):
         eval_freq=eval_freq,
         deterministic=True,
         render=False,
-        n_eval_episodes=10,
+        n_eval_episodes=3,
     )
 
     ckpt_cb = CheckpointCallback(
@@ -370,7 +370,7 @@ def train(args):
     model.learn(
         total_timesteps=args.timesteps,
         callback=[eval_cb, ckpt_cb],
-        log_interval=10,
+        log_interval=100,
     )
     elapsed = time.time() - t0
     avg_fps = args.timesteps / elapsed
