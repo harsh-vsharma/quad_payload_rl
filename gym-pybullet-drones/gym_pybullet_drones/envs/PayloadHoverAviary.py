@@ -4,14 +4,15 @@ A Crazyflie quadrotor carries a small payload attached via a rigid cable
 (PyBullet point-to-point constraint). The RL agent controls the drone's
 4 motor RPMs to suppress payload swing and maintain stable hover.
 
-Supports progressive curriculum learning (V1–V7) through a config dict:
-  V1: Baseline stabilisation from small swing
+Supports progressive curriculum learning (V1–V8) through a config dict:
+  V1: Baseline stabilisation from moderate swing
   V2: Wider initial conditions
   V3: Disturbance rejection (external impulses)
   V4: Wind and environmental noise
   V5: Stability + displacement control
-  V6: Stability + efficiency
-  V7: Stability during transport (moving target)
+  V6: Payload height control
+  V7: Stability + efficiency (with height locked in)
+  V8: Stability during transport (moving target)
 """
 
 import numpy as np
@@ -60,11 +61,12 @@ class PayloadHoverAviary(BaseRLAviary):
         swing_weight=4.0,
         vel_weight=0.3,
         tilt_weight=2.0,
-        drift_weight=0.0,           # V5+
-        energy_weight=0.0,          # V6+
-        target_weight=0.0,          # V7+
+        drift_weight=0.0,              # V5+
+        payload_height_weight=0.0,     # V6+: reward for keeping payload at target z
+        energy_weight=0.0,             # V7+
+        target_weight=0.0,             # V8+
 
-        # Transport (V7)
+        # Transport (V8)
         moving_target=False,
         target_speed=0.0,
 
@@ -498,14 +500,21 @@ class PayloadHoverAviary(BaseRLAviary):
             drift = np.linalg.norm(drone_pos[0:2] - self.TARGET_POS[0:2])
             reward -= cfg["drift_weight"] * drift
 
-        # ----- V6+: energy penalty (action smoothness) -----
+        # ----- V6+: payload height reward -----
+        # Exponential bonus for keeping the payload at the correct altitude.
+        # This MUST come before energy to prevent the "sink to save effort" exploit.
+        if cfg["payload_height_weight"] > 0:
+            payload_height_err = abs(payload_pos[2] - self.TARGET_PAYLOAD_POS[2])
+            reward += cfg["payload_height_weight"] * np.exp(-5.0 * payload_height_err)
+
+        # ----- V7+: energy penalty (action smoothness) -----
         if cfg["energy_weight"] > 0 and len(self.action_buffer) >= 2:
             last_action = self.action_buffer[-1]
             prev_action = self.action_buffer[-2]
             action_diff = np.linalg.norm(last_action - prev_action)
             reward -= cfg["energy_weight"] * action_diff
 
-        # ----- V7: target proximity -----
+        # ----- V8: target proximity -----
         if cfg["target_weight"] > 0:
             target_err = np.linalg.norm(self.TARGET_POS - drone_pos)
             reward += cfg["target_weight"] * np.exp(-2.0 * target_err)
@@ -523,6 +532,10 @@ class PayloadHoverAviary(BaseRLAviary):
 
         # Ground crash
         if pos[2] < 0.05:
+            return True
+        # Payload ground contact — prevents the "sink to save energy" exploit
+        payload_pos, _ = self._getPayloadState()
+        if payload_pos[2] < 0.02:
             return True
         # Ceiling
         if pos[2] > 3.0:
@@ -555,6 +568,8 @@ class PayloadHoverAviary(BaseRLAviary):
             "drone_pos":         s[0:3].tolist(),
             "drone_z":           float(s[2]),
             "payload_z":         float(payload_pos[2]),
+            "payload_target_z":  float(self.TARGET_PAYLOAD_POS[2]),
+            "payload_height_err":float(abs(payload_pos[2] - self.TARGET_PAYLOAD_POS[2])),
             "swing_angle_deg":   float(np.rad2deg(swing_angle)),
             "drone_pos_error":   float(np.linalg.norm(self.TARGET_POS - s[0:3])),
             "payload_pos_error": float(np.linalg.norm(
