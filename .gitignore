@@ -40,6 +40,7 @@ dist/
 # ==============================
 results/
 old_results/
+eval_*/
 
 # Saved models & checkpoints
 *.zip
