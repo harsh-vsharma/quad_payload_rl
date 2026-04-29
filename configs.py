@@ -81,8 +81,8 @@ V4_WIND = {**V3_DISTURBANCE,
     "wind_mean_speed": 0.02,
     "wind_turbulence": 0.005,
     "impulse_enabled": False,
+    "drift_weight": 0.0,
     "payload_height_weight": 0.0,
-    "drift_weight": 0.2,
 }
 
 V5_DISPLACEMENT = {**V4_WIND,
