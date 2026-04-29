@@ -274,7 +274,8 @@ def train(args):
         env_config = load_config(args.config)
         version = env_config["version"]
     else:
-        env_config = get_version_config(args.version)
+        stage = getattr(args, 'stage', None)
+        env_config = get_version_config(args.version, stage=stage)
         version = args.version
 
     # Apply CLI overrides
@@ -432,6 +433,9 @@ Examples:
 
     parser.add_argument("--version", type=int, default=1,
                         help="Environment version 1-8 (default: 1)")
+    parser.add_argument("--stage", type=str, default=None,
+                        choices=["a", "b", "c"],
+                        help="V8 sub-stage: a=near(0.3m), b=medium(0.6m), c=full(1.0m)")
     parser.add_argument("--config", type=str, default=None,
                         help="Path to YAML config file (overrides --version)")
     parser.add_argument("--algo", type=str, default="sac",

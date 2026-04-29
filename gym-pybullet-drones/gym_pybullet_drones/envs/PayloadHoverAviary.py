@@ -67,6 +67,8 @@ class PayloadHoverAviary(BaseRLAviary):
         target_weight=0.0,             # V8+: proximity reward at target
         progress_weight=0.0,           # V8+: potential-based shaping (distance closed/step)
         transit_relax=0.0,             # V8+: relax vel/tilt penalties when far from target
+        arrival_bonus=0.0,             # V8+: one-time bonus for entering arrival zone
+        arrival_radius=0.15,           # V8+: payload 3D distance = "arrived"
 
         # Go-to-target navigation (V8)
         random_target=False,           # sample new random target each episode
@@ -181,10 +183,12 @@ class PayloadHoverAviary(BaseRLAviary):
 
         self.TARGET_PAYLOAD_POS = self.TARGET_POS - np.array([0.0, 0.0, self.CABLE_LENGTH])
 
-        # Progress reward bookkeeping (potential-based shaping)
+        # Progress reward bookkeeping — payload-centric distance
+        init_payload_pos = np.array([0.0, 0.0, 1.0 - self.CABLE_LENGTH])
         self._prev_target_dist = float(np.linalg.norm(
-            self.TARGET_POS - np.array([0.0, 0.0, 1.0])  # initial drone pos
+            self.TARGET_PAYLOAD_POS - init_payload_pos
         ))
+        self._arrival_triggered = False
 
         # Parent housekeeping (loads drone, resets counters)
         super()._housekeeping()
@@ -437,7 +441,7 @@ class PayloadHoverAviary(BaseRLAviary):
         [9:12]  drone ang_vel
         [12:15] cable_vec   (drone → payload, relative)
         [15:18] payload_vel
-        [18:21] target_disp (drone → target)
+        [18:21] payload_target_disp (payload → payload_target, payload-centric)
         [21]    cable_angle (angle from vertical, rad)
         """
         lo = np.full((1, self.OBS_DIM), -np.inf, dtype=np.float32)
@@ -461,18 +465,21 @@ class PayloadHoverAviary(BaseRLAviary):
         cable_vert  = -cable_vec[2]  # positive when payload is below
         cable_angle = np.arctan2(cable_horiz, cable_vert)
 
-        # Target displacement
-        target_disp = self.TARGET_POS - drone_pos
+        # Payload-centric target displacement:
+        # Directly encodes what the policy must reduce — the vector
+        # from the payload to its delivery target.  For V1-V7 where
+        # TARGET_PAYLOAD_POS ≈ payload_pos (hover), this is ~(0,0,0).
+        payload_target_disp = self.TARGET_PAYLOAD_POS - payload_pos
 
         obs = np.concatenate([
-            drone_pos,      # 0:3
-            drone_rpy,      # 3:6
-            drone_vel,      # 6:9
-            drone_ang_v,    # 9:12
-            cable_vec,      # 12:15
-            payload_vel,    # 15:18
-            target_disp,    # 18:21
-            [cable_angle],  # 21
+            drone_pos,            # 0:3
+            drone_rpy,            # 3:6
+            drone_vel,            # 6:9
+            drone_ang_v,          # 9:12
+            cable_vec,            # 12:15
+            payload_vel,          # 15:18
+            payload_target_disp,  # 18:21  (payload-centric)
+            [cable_angle],        # 21
         ]).reshape(1, self.OBS_DIM).astype(np.float32)
 
         return obs
@@ -512,15 +519,25 @@ class PayloadHoverAviary(BaseRLAviary):
         # ----- Tilt penalty -----
         tilt = abs(drone_rpy[0]) + abs(drone_rpy[1])
 
-        # ----- Transit-phase relaxation (V8) -----
-        # When far from target, reduce vel/tilt penalties so the drone can
-        # actually fly aggressively.  Penalties return to full at the target.
-        curr_target_dist = float(np.linalg.norm(self.TARGET_POS - drone_pos))
-        relax = cfg["transit_relax"] * min(curr_target_dist, 1.0)
+        # ----- Payload-to-target distance (the primary V8 metric) -----
+        pld_target_dist = float(np.linalg.norm(
+            self.TARGET_PAYLOAD_POS - payload_pos
+        ))
+
+        # ----- Phase detection (smooth transit → hold blend) -----
+        # transit_blend: 1.0 = far from target (transit), 0.0 = at target (hold)
+        # Smooth linear fade over a 0.1m band above the arrival radius.
+        arrival_r = cfg["arrival_radius"]
+        transit_blend = float(np.clip(
+            (pld_target_dist - arrival_r) / 0.1, 0.0, 1.0
+        ))
+
+        # Transit-phase relaxation: vel/tilt penalties fade when far from target
+        relax = cfg["transit_relax"] * transit_blend
         eff_vel_w  = cfg["vel_weight"]  * (1.0 - relax)
         eff_tilt_w = cfg["tilt_weight"] * (1.0 - relax)
 
-        # ----- Assemble -----
+        # ----- Assemble core reward -----
         reward = (
             + cfg["alive_bonus"]
             + cfg["swing_weight"] * swing_reward
@@ -534,30 +551,34 @@ class PayloadHoverAviary(BaseRLAviary):
             reward -= cfg["drift_weight"] * drift
 
         # ----- V6+: payload height reward -----
-        # Exponential bonus for keeping the payload at the correct altitude.
-        # This MUST come before energy to prevent the "sink to save effort" exploit.
         if cfg["payload_height_weight"] > 0:
             payload_height_err = abs(payload_pos[2] - self.TARGET_PAYLOAD_POS[2])
             reward += cfg["payload_height_weight"] * np.exp(-5.0 * payload_height_err)
 
-        # ----- V7+: energy penalty (action smoothness) -----
+        # ----- V7+: energy penalty (relaxed during transit) -----
         if cfg["energy_weight"] > 0 and len(self.action_buffer) >= 2:
             last_action = self.action_buffer[-1]
             prev_action = self.action_buffer[-2]
             action_diff = np.linalg.norm(last_action - prev_action)
-            reward -= cfg["energy_weight"] * action_diff
+            # Halve energy penalty during transit so agent can accelerate
+            eff_energy_w = cfg["energy_weight"] * (1.0 - 0.5 * transit_blend)
+            reward -= eff_energy_w * action_diff
 
-        # ----- V8: target proximity (sharper kernel) -----
+        # ----- V8: target proximity (payload-centric, sharp kernel) -----
         if cfg["target_weight"] > 0:
-            reward += cfg["target_weight"] * np.exp(-4.0 * curr_target_dist)
+            reward += cfg["target_weight"] * np.exp(-4.0 * pld_target_dist)
 
-        # ----- V8: progress reward (potential-based shaping) -----
-        # Dense gradient: +reward for every metre closed toward target.
-        # Policy-invariant shaping (Ng et al., 1999).
+        # ----- V8: progress reward (fades near target to prevent jitter) -----
         if cfg["progress_weight"] > 0:
-            progress = self._prev_target_dist - curr_target_dist
-            reward += cfg["progress_weight"] * progress
-            self._prev_target_dist = curr_target_dist
+            progress = self._prev_target_dist - pld_target_dist
+            reward += cfg["progress_weight"] * progress * transit_blend
+            self._prev_target_dist = pld_target_dist
+
+        # ----- V8: arrival bonus (one-time, discrete commitment signal) -----
+        if cfg["arrival_bonus"] > 0:
+            if not self._arrival_triggered and pld_target_dist < arrival_r:
+                reward += cfg["arrival_bonus"]
+                self._arrival_triggered = True
 
         return float(reward)
 
