@@ -91,10 +91,47 @@ def test(args):
     else:
         env_config = get_version_config(args.version)
 
+    if args.duration is not None:
+        env_config["episode_len_sec"] = args.duration
+
+    # ── Disturbance overrides ──────────────────────────────────────────
+    if args.no_wind:
+        env_config["wind_enabled"] = False
+        env_config["wind_mean_speed"] = 0.0
+        env_config["wind_turbulence"] = 0.0
+    if args.no_impulse:
+        env_config["impulse_enabled"] = False
+
+    # ── Fixed target override ──────────────────────────────────────────
+    if args.target:
+        try:
+            parts = [float(v) for v in args.target.split(",")]
+            if len(parts) == 2:
+                parts.append(1.0)   # default z = 1.0 m (drone height)
+            if len(parts) != 3:
+                raise ValueError
+            env_config["fixed_target"] = parts
+            env_config["random_target"] = False
+        except ValueError:
+            print(f"[ERROR] --target must be 'x,y' or 'x,y,z' (e.g. '0.5,0.3,1.0')")
+            return
+
     version = env_config["version"]
     print(f"[INFO] Loading model: {args.model}")
     print(f"[INFO] Algorithm: {args.algo.upper()}")
     print(f"[INFO] Version {version}: {VERSION_DESC.get(version, '?')}")
+
+    # ── Active conditions summary ──────────────────────────────────────
+    wind_status    = f"mean={env_config['wind_mean_speed']} m/s" if env_config.get("wind_enabled") else "OFF"
+    impulse_status = "ON" if env_config.get("impulse_enabled") else "OFF"
+    if env_config.get("fixed_target"):
+        t = env_config["fixed_target"]
+        target_status = f"FIXED ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f})"
+    elif env_config.get("random_target"):
+        target_status = "RANDOM (per episode)"
+    else:
+        target_status = "origin (0, 0, 1)"
+    print(f"[INFO] Conditions — wind: {wind_status}  |  env impulse: {impulse_status}  |  target: {target_status}")
 
     model = algo_cls.load(args.model)
 
@@ -118,9 +155,11 @@ def test(args):
     impulse_mode = args.impulse
 
     if impulse_mode:
-        print(f"\n[INFO] Impulse mode: {args.impulse_mag}N at t={args.impulse_time}s")
-    if version >= 4 and env_config.get("wind_enabled"):
+        print(f"\n[INFO] Manual impulse: {args.impulse_mag}N at t={args.impulse_time}s")
+    if env_config.get("wind_enabled"):
         print(f"[INFO] Wind active: mean={env_config['wind_mean_speed']} m/s")
+    if env_config.get("impulse_enabled"):
+        print(f"[INFO] Env impulses active (random, scheduled)")
     if version >= 8 and env_config.get("moving_target"):
         print(f"[INFO] Moving target: speed={env_config['target_speed']} m/s")
 
@@ -342,13 +381,24 @@ if __name__ == "__main__":
                         help="Path to YAML config file")
     parser.add_argument("--episodes", type=int, default=3,
                         help="Number of episodes (default: 3)")
+    parser.add_argument("--duration", type=float, default=None,
+                        help="Override episode duration in seconds (e.g. for longer demos)")
     parser.add_argument("--gui", action="store_true",
                         help="Show PyBullet GUI")
     parser.add_argument("--record", action="store_true",
                         help="Record video")
-    # Impulse
+    # Disturbance flags
+    parser.add_argument("--no_wind", action="store_true",
+                        help="Force-disable wind (overrides version default)")
+    parser.add_argument("--no_impulse", action="store_true",
+                        help="Force-disable env impulses (overrides version default)")
+    # Fixed target (V8)
+    parser.add_argument("--target", type=str, default=None,
+                        help="Fixed drone target as 'x,y' or 'x,y,z' (e.g. '0.5,0.3' or '0.5,0.3,1.0'). "
+                             "Disables random target. Default z=1.0 if omitted.")
+    # Manual single impulse (test.py level, independent of env impulse_enabled)
     parser.add_argument("--impulse", action="store_true",
-                        help="Apply single impulse to payload")
+                        help="Apply a single manual impulse to payload during the visual run")
     parser.add_argument("--impulse_time", type=float, default=3.0,
                         help="Impulse time in seconds (default: 3.0)")
     parser.add_argument("--impulse_mag", type=float, default=0.05,
