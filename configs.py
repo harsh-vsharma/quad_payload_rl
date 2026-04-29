@@ -77,12 +77,24 @@ V3_DISTURBANCE = {**V2_WIDER_IC,
 
 V4_WIND = {**V3_DISTURBANCE,
     "version": 4,
+
+    # Environment
     "wind_enabled": True,
     "wind_mean_speed": 0.02,
     "wind_turbulence": 0.005,
     "impulse_enabled": False,
-    "drift_weight": 0.0,
-    "payload_height_weight": 0.0,
+
+    # Core behaviour shaping
+    "drift_weight": 0.3,          # <-- THIS is the key fix
+
+    # Light anti-sink (optional but useful)
+    "payload_height_weight": 0.3, # not full V6, just prevents collapse
+
+    # Keep velocity penalty moderate (do NOT increase)
+    "vel_weight": 0.3,
+
+    # Keep swing dominant
+    "swing_weight": 4.0,
 }
 
 V5_DISPLACEMENT = {**V4_WIND,
