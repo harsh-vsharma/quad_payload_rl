@@ -4,10 +4,12 @@ Provides version presets (V1–V8) and YAML loading for experiment configs.
 Each version builds on the previous one, adding progressive difficulty.
 
 Curriculum ordering rationale:
-  V1–V5: stabilisation, disturbances, position control
+  V1–V3: stabilisation, wider ICs, disturbance rejection
+  V4:    wind + light positional reference (prevents passive drift)
+  V5:    full position hold (drift penalty)
   V6:    payload height control (prevents "sink to save effort" in V7)
   V7:    energy efficiency (safe now that height is locked in)
-  V8:    transport (moving target — capstone)
+  V8:    go-to-target navigation (capstone)
 """
 
 import os
