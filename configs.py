@@ -77,10 +77,11 @@ V3_DISTURBANCE = {**V2_WIDER_IC,
 
 V4_WIND = {**V3_DISTURBANCE,
     "version": 4,
-    "wind_enabled": False,
+    "wind_enabled": True,
     "wind_mean_speed": 0.02,
     "wind_turbulence": 0.005,
     "payload_height_weight": 0.3,
+    "impulse_enabled": False,
 }
 
 V5_DISPLACEMENT = {**V4_WIND,
